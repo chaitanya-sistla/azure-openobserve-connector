@@ -64,7 +64,7 @@ func getAccessToken(tenantID, clientID, clientSecret string) string {
     return tokenResponse.AccessToken
 }
 
-// Function to retrieve logs using delta query
+// retrieve logs using delta query
 func getLogsFromEndpoint(accessToken, apiURL string) ([]map[string]interface{}, string, error) {
     if deltaLink != "" {
         apiURL = deltaLink // Use deltaLink if available
@@ -80,7 +80,7 @@ func getLogsFromEndpoint(accessToken, apiURL string) ([]map[string]interface{}, 
     }
     defer resp.Body.Close()
 
-    // Handle 429 throttling response
+    // Handle 429 throttling response but you can have upto 10,000 API calls in 10 minutes
     if resp.StatusCode == 429 {
         retryAfter := resp.Header.Get("Retry-After")
         delay, err := strconv.Atoi(retryAfter)
@@ -105,7 +105,7 @@ func getLogsFromEndpoint(accessToken, apiURL string) ([]map[string]interface{}, 
     return graphResponse.Value, graphResponse.DeltaLink, nil
 }
 
-// Function to map audit logs to the AuditLog struct
+//  map audit logs to the AuditLog struct
 func mapToAuditLogs(rawLogs []map[string]interface{}, jobName string) []AuditLog {
     var auditLogs []AuditLog
     for _, logEntry := range rawLogs {
@@ -125,6 +125,7 @@ func mapToAuditLogs(rawLogs []map[string]interface{}, jobName string) []AuditLog
     return auditLogs
 }
 
+// consolidated the previous sources
 // Function to push logs to OpenObserve
 func pushLogsToOpenObserve(logs []AuditLog, orgID, streamName, openObserveHost, base64Creds string) {
     jsonData, err := json.Marshal(logs)
@@ -171,17 +172,17 @@ func runConnector(tenantID, clientID, clientSecret, orgID, streamName, openObser
         // Get access token from Microsoft Graph API
         accessToken := getAccessToken(tenantID, clientID, clientSecret)
 
-        // Fetch audit logs using delta queries
+        // fetchin audit logs using delta queries
         logs, newDeltaLink, err := getLogsFromEndpoint(accessToken, "https://graph.microsoft.com/v1.0/auditLogs/directoryAudits")
         if err != nil {
             log.Printf("Error fetching logs: %v", err)
             continue
         }
 
-        // Map the logs to our struct
+        // map the logs to our struct
         auditLogs := mapToAuditLogs(logs, "microsoft_audit")
 
-        // Push logs to OpenObserve
+        // push logs to OpenObserve
         pushLogsToOpenObserve(auditLogs, orgID, streamName, openObserveHost, base64Creds)
 
         // Update the delta link for the next request
@@ -189,7 +190,7 @@ func runConnector(tenantID, clientID, clientSecret, orgID, streamName, openObser
             deltaLink = newDeltaLink
         }
 
-        // Wait for 5 seconds before the next fetch
+        // wait for 5 seconds before the next fetch but you can change this to your custom
         fmt.Println("Waiting for 5 seconds...")
         time.Sleep(5 * time.Second)
     }
@@ -209,11 +210,11 @@ func main() {
     openObserveHost := os.Getenv("OPEN_OBSERVE_HOST")
     base64Creds := os.Getenv("BASE64_CREDS")
 
-    // Validate that environment variables are set
+    // validate that environment variables are set
     if tenantID == "" || clientID == "" || clientSecret == "" || orgID == "" || streamName == "" || openObserveHost == "" || base64Creds == "" {
         log.Fatal("One or more required environment variables are missing.")
     }
 
-    // Run the connector continuously
+    // run the connector continuously
     runConnector(tenantID, clientID, clientSecret, orgID, streamName, openObserveHost, base64Creds)
 }
