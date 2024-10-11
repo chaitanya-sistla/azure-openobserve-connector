@@ -56,7 +56,16 @@ To use this connector, you'll first need to register an application in Microsoft
 
 ---
 
-## 2. Environment Variables Configuration
+## 2. OpenObserve Details
+
+1. **Log in to Open Observe**
+2. Navigate to **Ingestion** > **Custom** > **OTEL Collector**.
+3. Grab the token from **Authorization** header
+4. Save this token to use in the next step
+
+---
+
+## 3. Environment Variables Configuration
 
 You can configure the connector using environment variables to keep your credentials secure.
 
@@ -68,8 +77,7 @@ Create a `.env` file in the root directory of the project with the following con
 TENANT_ID=your-tenant-id
 CLIENT_ID=your-client-id
 CLIENT_SECRET=your-client-secret
-ORG_ID=default
-STREAM_NAME=azureoo
-OPEN_OBSERVE_HOST=localhost:5080
-BASE64_CREDS=your-base64-encoded-credentials
-
+ORG_ID=your-OpenObserve-org-name
+STREAM_NAME=OpenObserve-stream-name-you-chose
+OPEN_OBSERVE_HOST=your-OpenObserve-url
+BASE64_CREDS=token-you-copied-from-above-step
