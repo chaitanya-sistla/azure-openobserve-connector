@@ -2,6 +2,14 @@
 
 This Go-based connector fetches logs from Microsoft Graph API, including audit logs, directory logs, sign-in activity, and consent approvals, and pushes them to OpenObserve for analysis.
 
+### Steps Covered in the README:
+
+1. **Microsoft App Registration**: How to set up the application in Azure and configure the required permissions.
+2. **OpenObserve Details**: Instructions on how to retrieve access token from O2 dashboard.
+3. **Environment Variables**: Instructions on how to use `.env` to store sensitive data and load it into the application.
+4. **Running the Code**: Commands to run the Go program locally and in the background using `nohup`.
+5. **Troubleshooting and Logs**: Instructions to monitor the logs of the connector.
+
 ## Features
 
 - Fetches audit, directory, sign-in, and user consent logs.
@@ -81,3 +89,35 @@ ORG_ID=your-OpenObserve-org-name
 STREAM_NAME=OpenObserve-stream-name-you-chose
 OPEN_OBSERVE_HOST=your-OpenObserve-url
 BASE64_CREDS=token-you-copied-from-above-step
+
+
+### Step 2: Load Environment Variables
+
+```env
+go get github.com/joho/godotenv
+
+---
+
+## 4. Running the Connector
+
+### Step 1: Running Locally
+
+Once you have set up the environment variables, run the connector using:
+
+```env
+go run main.go
+
+### Step 2: Running in the Background
+
+To run the connector in the background and ensure it continues running, use nohup
+
+```env
+nohup go run main.go > log.txt 2>&1 &
+
+---
+
+## 5. Troubleshooting and Logs
+
+- **Logs**: When the connector is run with `nohup`, the output will be logged to `log.txt`. To check the logs, run:
+  ```bash
+  tail -f log.txt
