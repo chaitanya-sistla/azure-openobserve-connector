@@ -2,6 +2,8 @@
 
 This Go-based connector fetches logs from Microsoft Graph API, including audit logs, directory logs, sign-in activity, and consent approvals, and pushes them to OpenObserve for analysis.
 
+![O2 Azure Ingestion](./assets/o2-azure-logs.png)
+
 ### Steps Covered in the README:
 
 1. **Microsoft App Registration**: How to set up the application in Azure and configure the required permissions.
