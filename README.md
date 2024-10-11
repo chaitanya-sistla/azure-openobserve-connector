@@ -89,13 +89,13 @@ ORG_ID=your-OpenObserve-org-name
 STREAM_NAME=OpenObserve-stream-name-you-chose
 OPEN_OBSERVE_HOST=your-OpenObserve-url
 BASE64_CREDS=token-you-copied-from-above-step
-
+```
 
 ### Step 2: Load Environment Variables
 
 ```env
 go get github.com/joho/godotenv
-
+```
 ---
 
 ## 4. Running the Connector
@@ -106,6 +106,7 @@ Once you have set up the environment variables, run the connector using:
 
 ```env
 go run main.go
+```
 
 ### Step 2: Running in the Background
 
@@ -113,6 +114,7 @@ To run the connector in the background and ensure it continues running, use nohu
 
 ```env
 nohup go run main.go > log.txt 2>&1 &
+```
 
 ---
 
@@ -121,3 +123,4 @@ nohup go run main.go > log.txt 2>&1 &
 - **Logs**: When the connector is run with `nohup`, the output will be logged to `log.txt`. To check the logs, run:
   ```bash
   tail -f log.txt
+  ```
