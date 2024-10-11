@@ -7,9 +7,10 @@ import (
     "io/ioutil"
     "log"
     "net/http"
+    "os"
+    "strconv"
     "time"
-	"github.com/joho/godotenv"
-	"os"
+    "github.com/joho/godotenv"
 )
 
 type TokenResponse struct {
@@ -17,10 +18,10 @@ type TokenResponse struct {
 }
 
 type GraphAPIResponse struct {
-    Value []map[string]interface{} `json:"value"`
+    Value     []map[string]interface{} `json:"value"`
+    DeltaLink string                   `json:"@odata.deltaLink"`
 }
 
-// Extend AuditLog struct with more fields
 type AuditLog struct {
     Level            string `json:"level"`
     Job              string `json:"job"`
@@ -29,10 +30,13 @@ type AuditLog struct {
     Category         string `json:"category"`
     CorrelationID    string `json:"correlationId"`
     Result           string `json:"result"`
-    UserPrincipal    string `json:"userPrincipalName"` // New field for user principal
-    ClientApp        string `json:"clientAppUsed"`     // New field for client app used
-    IPAddress        string `json:"ipAddress"`         // New field for IP address
+    UserPrincipal    string `json:"userPrincipalName"`
+    ClientApp        string `json:"clientAppUsed"`
+    IPAddress        string `json:"ipAddress"`
 }
+
+// Global variable to store delta link for future requests
+var deltaLink string
 
 // Function to get access token from Microsoft Graph API
 func getAccessToken(tenantID, clientID, clientSecret string) string {
@@ -60,86 +64,62 @@ func getAccessToken(tenantID, clientID, clientSecret string) string {
     return tokenResponse.AccessToken
 }
 
-// Function to retrieve logs from a given Microsoft Graph API endpoint
-func getLogsFromEndpoint(accessToken, apiURL string) []map[string]interface{} {
+// Function to retrieve logs using delta query
+func getLogsFromEndpoint(accessToken, apiURL string) ([]map[string]interface{}, string, error) {
+    if deltaLink != "" {
+        apiURL = deltaLink // Use deltaLink if available
+    }
+
     req, _ := http.NewRequest("GET", apiURL, nil)
     req.Header.Set("Authorization", "Bearer "+accessToken)
 
     client := &http.Client{}
     resp, err := client.Do(req)
     if err != nil {
-        log.Fatalf("Error fetching logs: %v", err)
+        return nil, "", fmt.Errorf("Error fetching logs: %v", err)
     }
     defer resp.Body.Close()
+
+    // Handle 429 throttling response
+    if resp.StatusCode == 429 {
+        retryAfter := resp.Header.Get("Retry-After")
+        delay, err := strconv.Atoi(retryAfter)
+        if err == nil {
+            log.Printf("Throttled. Retrying after %d seconds...", delay)
+            time.Sleep(time.Duration(delay) * time.Second)
+        } else {
+            log.Println("Throttled. Retrying after 60 seconds...")
+            time.Sleep(60 * time.Second)
+        }
+        return nil, "", fmt.Errorf("Throttled: 429 Too Many Requests")
+    }
 
     body, _ := ioutil.ReadAll(resp.Body)
 
     var graphResponse GraphAPIResponse
     err = json.Unmarshal(body, &graphResponse)
     if err != nil {
-        log.Fatalf("Error unmarshalling logs: %v", err)
+        return nil, "", fmt.Errorf("Error unmarshalling logs: %v", err)
     }
 
-    return graphResponse.Value
+    return graphResponse.Value, graphResponse.DeltaLink, nil
 }
 
-// Function to map audit logs for consent approvals to AuditLog struct
-func mapToConsentLogs(rawLogs []map[string]interface{}) []AuditLog {
-    var consentLogs []AuditLog
-    for _, logEntry := range rawLogs {
-        if logEntry["activityDisplayName"] == "Consent to application" {
-            consentLogs = append(consentLogs, AuditLog{
-                Level:            "info",
-                Job:              "user_consent",
-                Log:              fmt.Sprintf("User %s approved consent for %s", logEntry["initiatedBy"].(map[string]interface{})["user"].(map[string]interface{})["userPrincipalName"], logEntry["targetResources"].([]interface{})[0].(map[string]interface{})["displayName"]),
-                ActivityDateTime: logEntry["activityDateTime"].(string),
-                Category:         "Consent",
-                CorrelationID:    logEntry["correlationId"].(string),
-                Result:           logEntry["result"].(string),
-                UserPrincipal:    logEntry["initiatedBy"].(map[string]interface{})["user"].(map[string]interface{})["userPrincipalName"].(string),
-                ClientApp:        "N/A", // Not relevant for consent logs
-                IPAddress:        "N/A", // Not relevant for consent logs
-            })
-        }
-    }
-    return consentLogs
-}
-
-// Function to map sign-in logs to AuditLog struct
-func mapToSignInLogs(rawLogs []map[string]interface{}) []AuditLog {
-    var signInLogs []AuditLog
-    for _, logEntry := range rawLogs {
-        signInLogs = append(signInLogs, AuditLog{
-            Level:            "info",
-            Job:              "user_signin",
-            Log:              fmt.Sprintf("User %s signed in using %s from IP %s", logEntry["userPrincipalName"], logEntry["clientAppUsed"], logEntry["ipAddress"]),
-            ActivityDateTime: logEntry["createdDateTime"].(string),
-            Category:         "SignIn",
-            CorrelationID:    logEntry["correlationId"].(string),
-            Result:           logEntry["status"].(map[string]interface{})["value"].(string),
-            UserPrincipal:    logEntry["userPrincipalName"].(string),
-            ClientApp:        logEntry["clientAppUsed"].(string),
-            IPAddress:        logEntry["ipAddress"].(string),
-        })
-    }
-    return signInLogs
-}
-
-// Function to map raw logs to AuditLog struct
+// Function to map audit logs to the AuditLog struct
 func mapToAuditLogs(rawLogs []map[string]interface{}, jobName string) []AuditLog {
     var auditLogs []AuditLog
     for _, logEntry := range rawLogs {
         auditLogs = append(auditLogs, AuditLog{
-            Level:            "info", // Default log level, adjust as necessary
+            Level:            "info",
             Job:              jobName,
             Log:              fmt.Sprintf("Action: %s | Result: %s", logEntry["activityDisplayName"], logEntry["result"]),
             ActivityDateTime: logEntry["activityDateTime"].(string),
             Category:         logEntry["category"].(string),
             CorrelationID:    logEntry["correlationId"].(string),
             Result:           logEntry["result"].(string),
-            UserPrincipal:    "N/A", // Only relevant for certain logs
-            ClientApp:        "N/A", // Only relevant for certain logs
-            IPAddress:        "N/A", // Only relevant for certain logs
+            UserPrincipal:    "N/A",
+            ClientApp:        "N/A",
+            IPAddress:        "N/A",
         })
     }
     return auditLogs
@@ -152,7 +132,6 @@ func pushLogsToOpenObserve(logs []AuditLog, orgID, streamName, openObserveHost, 
         log.Fatalf("Error marshalling logs: %v", err)
     }
 
-    // Define OpenObserve endpoint and credentials
     openObserveURL := fmt.Sprintf("http://%s/api/%s/%s/_json", openObserveHost, orgID, streamName)
     req, err := http.NewRequest("POST", openObserveURL, bytes.NewBuffer(jsonData))
     if err != nil {
@@ -184,43 +163,31 @@ func pushLogsToOpenObserve(logs []AuditLog, orgID, streamName, openObserveHost, 
     }
 }
 
-// Function to run the connector logic continuously
+// Run the connector logic continuously
 func runConnector(tenantID, clientID, clientSecret, orgID, streamName, openObserveHost, base64Creds string) {
     for {
         fmt.Println("Fetching logs from Microsoft Graph API...")
 
-        // Get the access token from Microsoft Graph API
+        // Get access token from Microsoft Graph API
         accessToken := getAccessToken(tenantID, clientID, clientSecret)
 
-        // Fetch audit logs
-        auditLogs := getLogsFromEndpoint(accessToken, "https://graph.microsoft.com/v1.0/auditLogs/directoryAudits")
-        mappedAuditLogs := mapToAuditLogs(auditLogs, "microsoft_audit")
+        // Fetch audit logs using delta queries
+        logs, newDeltaLink, err := getLogsFromEndpoint(accessToken, "https://graph.microsoft.com/v1.0/auditLogs/directoryAudits")
+        if err != nil {
+            log.Printf("Error fetching logs: %v", err)
+            continue
+        }
 
-        // Fetch directory logs
-        directoryLogs := getLogsFromEndpoint(accessToken, "https://graph.microsoft.com/v1.0/auditLogs/directoryAudits")
-        mappedDirectoryLogs := mapToAuditLogs(directoryLogs, "microsoft_directory")
+        // Map the logs to our struct
+        auditLogs := mapToAuditLogs(logs, "microsoft_audit")
 
-        // Fetch sign-in activity logs (existing logic)
-        activityLogs := getLogsFromEndpoint(accessToken, "https://graph.microsoft.com/v1.0/auditLogs/signIns")
-        mappedActivityLogs := mapToAuditLogs(activityLogs, "microsoft_signin")
+        // Push logs to OpenObserve
+        pushLogsToOpenObserve(auditLogs, orgID, streamName, openObserveHost, base64Creds)
 
-        // --- New logic for user sign-ins ---
-        // Fetch and map user sign-ins
-        signInLogs := getLogsFromEndpoint(accessToken, "https://graph.microsoft.com/v1.0/auditLogs/signIns")
-        mappedSignInLogs := mapToSignInLogs(signInLogs)
-
-        // --- New logic for consent approvals ---
-        // Fetch and map user consent approvals
-        consentLogs := mapToConsentLogs(auditLogs) // Consent approvals come from audit logs
-
-        // Combine all logs into a single array
-        allLogs := append(mappedAuditLogs, mappedDirectoryLogs...)
-        allLogs = append(allLogs, mappedActivityLogs...)
-        allLogs = append(allLogs, mappedSignInLogs...)
-        allLogs = append(allLogs, consentLogs...)
-
-        // Push all logs to OpenObserve
-        pushLogsToOpenObserve(allLogs, orgID, streamName, openObserveHost, base64Creds)
+        // Update the delta link for the next request
+        if newDeltaLink != "" {
+            deltaLink = newDeltaLink
+        }
 
         // Wait for 5 seconds before the next fetch
         fmt.Println("Waiting for 5 seconds...")
@@ -228,12 +195,12 @@ func runConnector(tenantID, clientID, clientSecret, orgID, streamName, openObser
     }
 }
 
-// Main entry point
 func main() {
-	err := godotenv.Load()
+    err := godotenv.Load()
     if err != nil {
         log.Fatalf("Error loading .env file")
     }
+
     tenantID := os.Getenv("TENANT_ID")
     clientID := os.Getenv("CLIENT_ID")
     clientSecret := os.Getenv("CLIENT_SECRET")
@@ -250,4 +217,3 @@ func main() {
     // Run the connector continuously
     runConnector(tenantID, clientID, clientSecret, orgID, streamName, openObserveHost, base64Creds)
 }
-
